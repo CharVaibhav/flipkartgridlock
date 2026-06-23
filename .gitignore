@@ -1,0 +1,10 @@
+# Node dependencies
+node_modules/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.env
+*jan to may police violation_anonymized791b166.csv
