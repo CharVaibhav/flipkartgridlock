@@ -1,9 +1,11 @@
 const express = require('express');
 const axios = require('axios');
 const cron = require('node-cron');
+const path = require('path');
 
 const app = express();
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public')));
 
 const PORT = process.env.PORT || 3000;
 const INFERENCE_ENDPOINT = process.env.INFERENCE_ENDPOINT || 'http://127.0.0.1:8000/predict-choke';
@@ -93,6 +95,17 @@ app.post('/api/v1/trigger-evaluation', async (req, res) => {
         await evaluateHotspot(hotspot);
     }
     res.json({ status: "success", message: "Evaluation triggered successfully." });
+});
+
+// Proxy endpoint: forwards prediction requests to the Python ML Engine
+app.post('/api/v1/predict', async (req, res) => {
+    try {
+        const response = await axios.post(INFERENCE_ENDPOINT, req.body);
+        res.json(response.data);
+    } catch (error) {
+        console.error('Prediction proxy error:', error.message);
+        res.status(502).json({ error: 'ML Engine unreachable', detail: error.message });
+    }
 });
 
 app.listen(PORT, () => console.log(`RouteSync Node.js Orchestrator active on port ${PORT}`));

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="RouteSync — Intelligent traffic orchestration and curb-choke prediction system for Bengaluru." />
+  <title>RouteSync — Traffic Intelligence Dashboard</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛰️</text></svg>" />
+</head>
+<body>
+
+  <div class="ambient-bg"></div>
+
+  <!-- ═══════ NAVBAR ═══════ -->
+  <nav class="navbar" id="navbar">
+    <div class="navbar-inner">
+      <a class="navbar-brand" href="/">
+        <div class="brand-icon">🛰️</div>
+        <div class="brand-text">Route<span>Sync</span></div>
+      </a>
+      <div class="navbar-status">
+        <div class="status-badge online" id="orchestratorStatus">
+          <span class="pulse-dot"></span>
+          Orchestrator Online
+        </div>
+        <div class="status-badge online" id="engineStatus">
+          <span class="pulse-dot"></span>
+          ML Engine Online
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <div class="app-container">
+
+    <!-- ═══════ HERO ═══════ -->
+    <section class="hero">
+      <h1>Traffic Intelligence <span class="gradient-text">Dashboard</span></h1>
+      <p>Monitor spatial hotspots, simulate telemetry scenarios, and observe real-time curb-choke predictions powered by XGBoost.</p>
+    </section>
+
+    <!-- ═══════ STATS BAR ═══════ -->
+    <section class="stats-bar" id="statsBar">
+      <div class="stat-card">
+        <div class="stat-icon purple">📍</div>
+        <div class="stat-content">
+          <span class="stat-value" id="statHotspots">—</span>
+          <span class="stat-label">Tracked Hotspots</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">✅</div>
+        <div class="stat-content">
+          <span class="stat-value" id="statSafe">0</span>
+          <span class="stat-label">Safe Evaluations</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon amber">🚨</div>
+        <div class="stat-content">
+          <span class="stat-value" id="statAlerts">0</span>
+          <span class="stat-label">Choke Alerts</span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon blue">🤖</div>
+        <div class="stat-content">
+          <span class="stat-value" id="statModel">—</span>
+          <span class="stat-label">Prediction Model</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ MAIN GRID ═══════ -->
+    <div class="main-grid">
+
+      <!-- Hotspot Tracker -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon purple" style="background:var(--accent-primary-subtle);color:var(--accent-primary);">📡</div>
+            Spatial Hotspot Tracker
+          </div>
+          <span class="card-badge live">● Live</span>
+        </div>
+        <div class="card-body">
+          <div class="hotspot-list" id="hotspotList">
+            <div class="log-empty">
+              <div class="log-empty-icon">⏳</div>
+              Loading hotspots...
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Simulation Panel -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon amber" style="background:var(--status-warning-bg);color:var(--status-warning);">🎛️</div>
+            Telemetry Simulator
+          </div>
+        </div>
+        <div class="card-body">
+          <form class="sim-form" id="simForm">
+
+            <div class="input-group">
+              <label class="input-label">
+                Current Speed (km/h)
+                <span class="input-value" id="valSpeed">8.5</span>
+              </label>
+              <input type="range" id="sliderSpeed" min="1" max="60" step="0.5" value="8.5" />
+            </div>
+
+            <div class="input-row">
+              <div class="input-group">
+                <label class="input-label">
+                  Free-flow Speed
+                  <span class="input-value" id="valFreeflow">40</span>
+                </label>
+                <input type="range" id="sliderFreeflow" min="10" max="80" step="1" value="40" />
+              </div>
+              <div class="input-group">
+                <label class="input-label">
+                  Upstream Speed
+                  <span class="input-value" id="valUpstream">32</span>
+                </label>
+                <input type="range" id="sliderUpstream" min="5" max="60" step="1" value="32" />
+              </div>
+            </div>
+
+            <div class="input-row">
+              <div class="input-group">
+                <label class="input-label">
+                  Delay (seconds)
+                  <span class="input-value" id="valDelay">135</span>
+                </label>
+                <input type="range" id="sliderDelay" min="0" max="300" step="5" value="135" />
+              </div>
+              <div class="input-group">
+                <label class="input-label">
+                  Hour of Day
+                  <span class="input-value" id="valHour">12</span>
+                </label>
+                <input type="range" id="sliderHour" min="0" max="23" step="1" value="12" />
+              </div>
+            </div>
+
+            <div class="btn-group">
+              <button type="submit" class="btn btn-primary" id="btnPredict">
+                <span class="btn-text">⚡ Run Prediction</span>
+              </button>
+              <button type="button" class="btn btn-secondary" id="btnTriggerAll">
+                <span class="btn-text">🔁 Evaluate All</span>
+              </button>
+            </div>
+          </form>
+
+          <!-- Result Panel (hidden until prediction) -->
+          <div class="result-panel" id="resultPanel" style="display:none;">
+            <div class="result-header">
+              <div class="result-status" id="resultStatus">
+                <span id="resultIcon">✅</span>
+                <span id="resultText">Normal Traffic</span>
+              </div>
+              <span class="result-model-tag" id="resultModelTag">XGBoost</span>
+            </div>
+            <div class="result-metrics">
+              <div class="metric-card">
+                <div class="metric-value" id="metricConfidence">0.00</div>
+                <div class="metric-label">Confidence</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="metricDelaySeverity">0.0</div>
+                <div class="metric-label">Delay Severity</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-value" id="metricSegment">—</div>
+                <div class="metric-label">Segment</div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══════ ACTIVITY LOG ═══════ -->
+    <section class="log-section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon green" style="background:var(--status-safe-bg);color:var(--status-safe);">📋</div>
+            Activity Log
+          </div>
+          <button class="btn btn-secondary" id="btnClearLogs" style="padding:6px 14px;font-size:0.78rem;">Clear</button>
+        </div>
+        <div class="card-body">
+          <div class="log-container" id="logContainer">
+            <div class="log-empty" id="logEmpty">
+              <div class="log-empty-icon">📭</div>
+              No activity yet. Run a prediction or trigger an evaluation.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ DISPATCH PAYLOAD ═══════ -->
+    <section class="payload-section">
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            <div class="card-title-icon blue" style="background:var(--status-info-bg);color:var(--status-info);">📦</div>
+            Last Dispatch Payload
+          </div>
+        </div>
+        <div class="card-body" style="padding:0;">
+          <div class="payload-viewer">
+            <div class="payload-toolbar">
+              <div class="payload-toolbar-dots"><span></span><span></span><span></span></div>
+              <span class="payload-toolbar-title">dispatch_payload.json</span>
+            </div>
+            <div class="payload-code" id="payloadCode">
+              <div class="payload-empty">Waiting for a choke detection to generate a dispatch payload...</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- ═══════ FOOTER ═══════ -->
+  <footer class="footer">
+    RouteSync © 2026 — Built for <a href="https://github.com/CharVaibhav/flipkartgridlock" target="_blank">Flipkart GRiD</a>
+  </footer>
+
+  <script src="/app.js"></script>
+</body>
+</html>
