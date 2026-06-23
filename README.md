@@ -12,8 +12,9 @@ RouteSync is a hybrid traffic orchestrator and spatial analysis system. It polls
 
 ## Architecture Overview
 
-1. **Python Engine (`app.py`):** A FastAPI service that performs regression and threshold classification based on current velocity, upstream speed, and delay telemetry.
-2. **Node.js Orchestrator (`server.js`):** An Express server running a cron task to periodically query telemetry, evaluate hotspots against the Python Engine, and dispatch rerouting directives.
+1. **Model Training Pipeline (`train_model.py`):** Processes the historical traffic violation dataset, extracts 20 high-density hotspot centroids using K-Means, trains an XGBoost classifier, and exports `choke_model.json` and `hotspots.json`.
+2. **Python ML Engine (`app.py`):** A FastAPI service that dynamically predicts curb chokes using the trained XGBoost model and calculates distance to the nearest hotspot. If model files are not present, it gracefully falls back to rule-based heuristics.
+3. **Node.js Orchestrator (`server.js`):** An Express server running a cron task to periodically query telemetry, evaluate hotspots against the Python Engine, and dispatch rerouting directives.
 
 ---
 
@@ -23,11 +24,14 @@ RouteSync is a hybrid traffic orchestrator and spatial analysis system. It polls
 - Node.js (v18+)
 - Python (3.8+)
 
-### 1. Run the Python Engine
-Install dependencies and run the FastAPI server:
+### 1. Train and Start the Python Engine
+Install dependencies, train the XGBoost model, and run the FastAPI server:
 ```bash
 # Install Python packages
 pip install -r requirements.txt
+
+# Train the model and generate hotspots.json & choke_model.json
+python train_model.py
 
 # Start the server (binds to port 8000)
 python app.py
