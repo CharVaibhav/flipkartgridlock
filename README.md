@@ -4,6 +4,12 @@ RouteSync is a hybrid traffic orchestrator and spatial analysis system. It polls
 
 ---
 
+## Production Deployment
+
+- **Live Service URL:** [https://routesync-orchestrator.onrender.com](https://routesync-orchestrator.onrender.com)
+
+---
+
 ## Architecture Overview
 
 1. **Python Engine (`app.py`):** A FastAPI service that performs regression and threshold classification based on current velocity, upstream speed, and delay telemetry.
