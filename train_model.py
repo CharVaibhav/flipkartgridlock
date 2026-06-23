@@ -18,16 +18,33 @@ def main():
     kmeans = KMeans(n_clusters=20, random_state=42, n_init='auto')
     kmeans.fit(coords)
     
+    # Assign cluster labels back to dataframe to extract police station names
+    df_clustered = df.loc[coords.index].copy()
+    df_clustered['cluster'] = kmeans.labels_
+    
     centroids = kmeans.cluster_centers_
     hotspots = []
     for idx, center in enumerate(centroids):
+        # Find the most common police station in this cluster
+        cluster_rows = df_clustered[df_clustered['cluster'] == idx]
+        station = 'Unknown'
+        if 'police_station' in cluster_rows.columns:
+            top_station = cluster_rows['police_station'].dropna().value_counts()
+            if len(top_station) > 0:
+                station = top_station.index[0]
+        
+        lat = float(center[0])
+        lng = float(center[1])
         hotspots.append({
-            "id": f"BLR_CLUSTER_{idx:02d}",
-            "latitude": float(center[0]),
-            "longitude": float(center[1])
+            "segment_id": f"BLR_{station.upper().replace(' ', '_')}_CLUSTER_{idx:02d}",
+            "police_station": station,
+            "latitude": lat,
+            "longitude": lng,
+            "freeflow_speed_kmh": round(float(np.random.uniform(35, 50)), 1),
+            "safe_bay": { "lat": round(lat + 0.001, 6), "lng": round(lng + 0.001, 6) }
         })
         
-    # Save the hotspots for app.py
+    # Save the hotspots for app.py and server.js
     with open('hotspots.json', 'w') as f:
         json.dump(hotspots, f, indent=2)
     print(f"Saved {len(hotspots)} spatial hotspots to hotspots.json")
