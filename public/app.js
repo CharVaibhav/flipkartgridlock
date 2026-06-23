@@ -1,157 +1,121 @@
 // ═══════════════════════════════════════════════════
-// RouteSync Frontend Application
+// RouteSync — Frontend Logic
 // ═══════════════════════════════════════════════════
 
-const API_BASE = window.location.origin;
+const API = window.location.origin;
 let hotspots = [];
-let selectedHotspot = null;
-let safeCount = 0;
-let alertCount = 0;
+let activeIndex = 0;
 
-// ─── INITIALIZATION ─────────────────────────────────
+// ─── BOOT ───────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  initSliders();
+  setupSliders();
   loadHotspots();
-  checkEngineStatus();
-
-  document.getElementById('simForm').addEventListener('submit', handlePredict);
-  document.getElementById('btnTriggerAll').addEventListener('click', handleTriggerAll);
+  checkStatus();
+  document.getElementById('simForm').addEventListener('submit', runPrediction);
+  document.getElementById('btnEvalAll').addEventListener('click', triggerAll);
   document.getElementById('btnClearLogs').addEventListener('click', clearLogs);
 });
 
-// ─── SLIDER SETUP ───────────────────────────────────
-function initSliders() {
+// ─── SLIDERS ────────────────────────────────────────
+function setupSliders() {
   const sliders = [
-    { id: 'sliderSpeed', display: 'valSpeed', suffix: ' km/h' },
-    { id: 'sliderFreeflow', display: 'valFreeflow', suffix: ' km/h' },
-    { id: 'sliderUpstream', display: 'valUpstream', suffix: ' km/h' },
-    { id: 'sliderDelay', display: 'valDelay', suffix: 's' },
-    { id: 'sliderHour', display: 'valHour', suffix: ':00' },
+    { el: 'sliderSpeed', display: 'valSpeed', fmt: v => v + ' km/h' },
+    { el: 'sliderFreeflow', display: 'valFreeflow', fmt: v => v + ' km/h' },
+    { el: 'sliderUpstream', display: 'valUpstream', fmt: v => v + ' km/h' },
+    { el: 'sliderDelay', display: 'valDelay', fmt: v => v + 's' },
+    { el: 'sliderHour', display: 'valHour', fmt: v => String(v).padStart(2,'0') + ':00' },
   ];
 
-  sliders.forEach(({ id, display, suffix }) => {
-    const slider = document.getElementById(id);
+  sliders.forEach(({ el, display, fmt }) => {
+    const input = document.getElementById(el);
     const label = document.getElementById(display);
-
-    const updateSlider = () => {
-      const pct = ((slider.value - slider.min) / (slider.max - slider.min)) * 100;
-      slider.style.setProperty('--val', pct + '%');
-      label.textContent = slider.value + suffix;
+    const update = () => {
+      const pct = ((input.value - input.min) / (input.max - input.min)) * 100;
+      input.style.setProperty('--pct', pct + '%');
+      label.textContent = fmt(input.value);
     };
-
-    slider.addEventListener('input', updateSlider);
-    updateSlider();
+    input.addEventListener('input', update);
+    update();
   });
 }
 
 // ─── LOAD HOTSPOTS ──────────────────────────────────
 async function loadHotspots() {
   try {
-    const res = await fetch(`${API_BASE}/api/v1/hotspots`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetch(`${API}/api/v1/hotspots`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     hotspots = await res.json();
-
-    document.getElementById('statHotspots').textContent = hotspots.length;
+    document.getElementById('hotspotCount').textContent = hotspots.length + ' zones';
     renderHotspots();
-    addLog('info', `Loaded ${hotspots.length} tracked spatial hotspots from orchestrator.`);
-
-    // Auto-select first hotspot
-    if (hotspots.length > 0) {
-      selectHotspot(0);
-    }
+    selectHotspot(0);
+    addLog('info', `Loaded ${hotspots.length} spatial hotspots.`);
   } catch (err) {
-    document.getElementById('statHotspots').textContent = '!';
     document.getElementById('hotspotList').innerHTML =
-      `<div class="log-empty"><div class="log-empty-icon">⚠️</div>Failed to load hotspots. Is the orchestrator running?</div>`;
-    addLog('danger', `Failed to fetch hotspots: ${err.message}`);
+      '<li class="log-empty">Could not reach the orchestrator.</li>';
+    addLog('danger', 'Failed to load hotspots: ' + err.message);
   }
 }
 
-// ─── RENDER HOTSPOTS ────────────────────────────────
 function renderHotspots() {
-  const container = document.getElementById('hotspotList');
-  container.innerHTML = hotspots.map((h, i) => `
-    <div class="hotspot-item ${selectedHotspot === i ? 'selected' : ''}" data-index="${i}" onclick="selectHotspot(${i})">
-      <div class="hotspot-top">
-        <span class="hotspot-name">🏛️ ${h.police_station}</span>
-        <span class="hotspot-segment">${h.segment_id}</span>
+  const ul = document.getElementById('hotspotList');
+  ul.innerHTML = hotspots.map((h, i) => `
+    <li class="hotspot-item ${i === activeIndex ? 'active' : ''}" onclick="selectHotspot(${i})">
+      <div class="hotspot-station">${h.police_station}</div>
+      <div class="hotspot-id">${h.segment_id}</div>
+      <div class="hotspot-meta">
+        <span>${h.latitude.toFixed(4)}, ${h.longitude.toFixed(4)}</span>
+        <span>${h.freeflow_speed_kmh} km/h free-flow</span>
       </div>
-      <div class="hotspot-coords">
-        <span>Lat: ${h.latitude.toFixed(6)}</span>
-        <span>Lng: ${h.longitude.toFixed(6)}</span>
-      </div>
-      <div class="hotspot-speed">
-        Free-flow: <strong>${h.freeflow_speed_kmh} km/h</strong> · Safe Bay: <strong>${h.safe_bay.lat.toFixed(4)}, ${h.safe_bay.lng.toFixed(4)}</strong>
-      </div>
-    </div>
+    </li>
   `).join('');
 }
 
-// ─── SELECT HOTSPOT ─────────────────────────────────
-function selectHotspot(index) {
-  selectedHotspot = index;
+function selectHotspot(i) {
+  activeIndex = i;
   renderHotspots();
-
-  const h = hotspots[index];
-  document.getElementById('sliderFreeflow').value = h.freeflow_speed_kmh;
-  document.getElementById('sliderFreeflow').dispatchEvent(new Event('input'));
+  const h = hotspots[i];
+  if (h) {
+    const ff = document.getElementById('sliderFreeflow');
+    ff.value = h.freeflow_speed_kmh;
+    ff.dispatchEvent(new Event('input'));
+  }
 }
 
-// ─── CHECK ENGINE STATUS ────────────────────────────
-async function checkEngineStatus() {
-  // Check orchestrator (we're already loaded if this works)
-  const orchBadge = document.getElementById('orchestratorStatus');
-  try {
-    await fetch(`${API_BASE}/api/v1/hotspots`);
-    orchBadge.className = 'status-badge online';
-    orchBadge.innerHTML = '<span class="pulse-dot"></span> Orchestrator Online';
-  } catch {
-    orchBadge.className = 'status-badge offline';
-    orchBadge.innerHTML = '<span class="pulse-dot"></span> Orchestrator Offline';
-  }
+// ─── STATUS CHECK ───────────────────────────────────
+async function checkStatus() {
+  // Orchestrator is online if we loaded the page
+  const orch = document.getElementById('statusOrch');
+  orch.className = 'pill pill-online';
 
-  // Check ML engine through proxy
-  const engBadge = document.getElementById('engineStatus');
+  // ML engine check
+  const eng = document.getElementById('statusEngine');
   try {
-    const res = await fetch(`${API_BASE}/api/v1/predict`, {
+    const res = await fetch(`${API}/api/v1/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        segment_id: 'HEALTH_CHECK',
-        latitude: 12.9255, longitude: 77.6186,
+        segment_id: 'HEALTH', latitude: 12.92, longitude: 77.61,
         current_speed_kmh: 30, freeflow_speed_kmh: 40,
         upstream_speed_kmh: 35, delay_seconds: 10, hour_of_day: 12
       })
     });
     if (res.ok) {
-      const data = await res.json();
-      engBadge.className = 'status-badge online';
-      engBadge.innerHTML = '<span class="pulse-dot"></span> ML Engine Online';
-      document.getElementById('statModel').textContent = data.model_used || 'Active';
-    } else {
-      throw new Error('not ok');
-    }
+      eng.className = 'pill pill-online';
+      eng.innerHTML = '<span class="pill-dot"></span> ML Engine';
+    } else throw new Error();
   } catch {
-    engBadge.className = 'status-badge offline';
-    engBadge.innerHTML = '<span class="pulse-dot"></span> ML Engine Offline';
-    document.getElementById('statModel').textContent = 'Offline';
+    eng.className = 'pill pill-offline';
+    eng.innerHTML = '<span class="pill-dot"></span> ML Engine';
   }
 }
 
-// ─── HANDLE PREDICT ─────────────────────────────────
-async function handlePredict(e) {
+// ─── RUN PREDICTION ─────────────────────────────────
+async function runPrediction(e) {
   e.preventDefault();
-
-  if (selectedHotspot === null && hotspots.length > 0) {
-    selectHotspot(0);
-  }
-
-  const h = hotspots[selectedHotspot] || {
-    segment_id: 'CUSTOM_SIM',
-    latitude: 12.9255,
-    longitude: 77.6186,
-    freeflow_speed_kmh: 40,
-    safe_bay: { lat: 12.9262, lng: 77.6195 }
+  const h = hotspots[activeIndex] || {
+    segment_id: 'MANUAL', latitude: 12.925, longitude: 77.618,
+    freeflow_speed_kmh: 40, safe_bay: { lat: 12.926, lng: 77.619 },
+    police_station: 'Unknown'
   };
 
   const payload = {
@@ -166,55 +130,50 @@ async function handlePredict(e) {
   };
 
   const btn = document.getElementById('btnPredict');
-  btn.classList.add('loading');
-
-  addLog('info', `Sending prediction request for ${payload.segment_id} @ ${payload.current_speed_kmh} km/h...`);
+  btn.classList.add('is-loading');
+  btn.textContent = 'Predicting…';
+  addLog('info', `Sending prediction for ${h.police_station} (${payload.current_speed_kmh} km/h, ${payload.delay_seconds}s delay)…`);
 
   try {
-    const res = await fetch(`${API_BASE}/api/v1/predict`, {
+    const res = await fetch(`${API}/api/v1/predict`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     });
-
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-
     showResult(data);
 
     if (data.curb_choke_imminent) {
-      alertCount++;
-      document.getElementById('statAlerts').textContent = alertCount;
-      addLog('danger', `🚨 CHOKE ALERT at ${data.segment_id}: Confidence ${(data.confidence_score * 100).toFixed(0)}% — Dispatching pin-shift.`);
-      showDispatchPayload(h, data.confidence_score);
+      addLog('danger', `🚨 CHOKE at ${data.segment_id} — ${(data.confidence_score*100).toFixed(0)}% confidence. Dispatching geofence.`);
+      showPayload(h, data.confidence_score);
     } else {
-      safeCount++;
-      document.getElementById('statSafe').textContent = safeCount;
-      addLog('success', `✅ ${data.segment_id} is within normal parameters. Confidence: ${(data.confidence_score * 100).toFixed(0)}%.`);
+      addLog('success', `✅ ${data.segment_id} — Normal flow. Confidence ${(data.confidence_score*100).toFixed(0)}%.`);
     }
   } catch (err) {
-    addLog('danger', `Prediction failed: ${err.message}. Make sure the Python ML Engine is running.`);
+    addLog('danger', 'Prediction failed: ' + err.message);
   } finally {
-    btn.classList.remove('loading');
+    btn.classList.remove('is-loading');
+    btn.textContent = '⚡ Run Prediction';
   }
 }
 
-// ─── HANDLE TRIGGER ALL ─────────────────────────────
-async function handleTriggerAll() {
-  const btn = document.getElementById('btnTriggerAll');
-  btn.classList.add('loading');
-
-  addLog('info', '🔁 Triggering immediate evaluation of all tracked hotspots...');
-
+// ─── TRIGGER ALL ────────────────────────────────────
+async function triggerAll() {
+  const btn = document.getElementById('btnEvalAll');
+  btn.classList.add('is-loading');
+  btn.textContent = 'Evaluating…';
+  addLog('info', 'Triggering evaluation of all hotspots…');
   try {
-    const res = await fetch(`${API_BASE}/api/v1/trigger-evaluation`, { method: 'POST' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetch(`${API}/api/v1/trigger-evaluation`, { method: 'POST' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    addLog('success', `Evaluation complete: ${data.message}`);
+    addLog('success', data.message);
   } catch (err) {
-    addLog('warning', `Trigger evaluation failed: ${err.message}`);
+    addLog('warning', 'Evaluation failed: ' + err.message);
   } finally {
-    btn.classList.remove('loading');
+    btn.classList.remove('is-loading');
+    btn.textContent = '🔁 Evaluate All Hotspots';
   }
 }
 
@@ -223,33 +182,33 @@ function showResult(data) {
   const panel = document.getElementById('resultPanel');
   panel.style.display = 'block';
 
-  const statusEl = document.getElementById('resultStatus');
-  const iconEl = document.getElementById('resultIcon');
-  const textEl = document.getElementById('resultText');
+  const banner = document.getElementById('resultBanner');
+  const label = document.getElementById('resultLabel');
 
   if (data.curb_choke_imminent) {
-    statusEl.className = 'result-status danger';
-    iconEl.textContent = '🚨';
-    textEl.textContent = 'Curb Choke Imminent';
+    banner.className = 'result-banner danger';
+    label.innerHTML = '🚨 Curb Choke Imminent';
   } else {
-    statusEl.className = 'result-status safe';
-    iconEl.textContent = '✅';
-    textEl.textContent = 'Normal Traffic Flow';
+    banner.className = 'result-banner safe';
+    label.innerHTML = '✅ Normal Traffic Flow';
   }
 
-  document.getElementById('resultModelTag').textContent = data.model_used || 'Unknown';
-  document.getElementById('metricConfidence').textContent = (data.confidence_score * 100).toFixed(1) + '%';
-  document.getElementById('metricDelaySeverity').textContent = data.delay_severity_index;
-  document.getElementById('metricSegment').textContent = data.segment_id.replace('BLR_', '').replace('_CLUSTER_', ' #');
+  document.getElementById('resultModel').textContent = data.model_used || 'Unknown';
+  document.getElementById('mConfidence').textContent = (data.confidence_score * 100).toFixed(1) + '%';
+  document.getElementById('mSeverity').textContent = data.delay_severity_index + 'x';
+  document.getElementById('mSegment').textContent = data.segment_id.replace('BLR_','').replace('_CLUSTER_',' #');
 
-  // Re-trigger animation
-  panel.style.animation = 'none';
-  panel.offsetHeight;
-  panel.style.animation = '';
+  // Re-animate
+  const result = panel.querySelector('.result');
+  result.style.animation = 'none';
+  result.offsetHeight;
+  result.style.animation = '';
 }
 
-// ─── SHOW DISPATCH PAYLOAD ──────────────────────────
-function showDispatchPayload(hotspot, severity) {
+// ─── SHOW PAYLOAD ───────────────────────────────────
+function showPayload(hotspot, severity) {
+  document.getElementById('payloadSection').style.display = 'block';
+
   const payload = {
     event_type: "COMPRESSED_ZONE_GEOFENCE_ENFORCEMENT",
     target_station_zone: hotspot.police_station,
@@ -265,73 +224,43 @@ function showDispatchPayload(hotspot, severity) {
     }
   };
 
-  const code = document.getElementById('payloadCode');
-  code.innerHTML = syntaxHighlight(JSON.stringify(payload, null, 2));
+  document.getElementById('payloadCode').innerHTML = highlight(JSON.stringify(payload, null, 2));
 }
 
-// ─── JSON SYNTAX HIGHLIGHTING ───────────────────────
-function syntaxHighlight(json) {
+function highlight(json) {
   return json.replace(
-    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
-    (match) => {
-      let cls = 'json-number';
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = 'json-key';
-          match = match.replace(/:$/, '') + ':';
-        } else {
-          cls = 'json-string';
-        }
-      } else if (/true|false/.test(match)) {
-        cls = 'json-bool';
-      } else if (/null/.test(match)) {
-        cls = 'json-null';
-      }
-      return `<span class="${cls}">${match}</span>`;
+    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+    m => {
+      let c = 'json-number';
+      if (/^"/.test(m)) { c = /:$/.test(m) ? 'json-key' : 'json-string'; }
+      else if (/true|false/.test(m)) { c = 'json-bool'; }
+      return `<span class="${c}">${m}</span>`;
     }
   );
 }
 
 // ─── ACTIVITY LOG ───────────────────────────────────
-function addLog(type, message) {
-  const container = document.getElementById('logContainer');
-  const emptyEl = document.getElementById('logEmpty');
-  if (emptyEl) emptyEl.remove();
+function addLog(type, msg) {
+  const body = document.getElementById('logBody');
+  const empty = document.getElementById('logEmpty');
+  if (empty) empty.remove();
 
-  const icons = {
-    info: 'ℹ️',
-    success: '✅',
-    warning: '⚠️',
-    danger: '🚨'
-  };
+  const time = new Date().toLocaleTimeString('en-IN', { hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit' });
 
-  const now = new Date();
-  const time = now.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-
-  const entry = document.createElement('div');
-  entry.className = 'log-entry';
-  entry.innerHTML = `
-    <div class="log-icon ${type}">${icons[type] || 'ℹ️'}</div>
-    <div class="log-content">
-      <div class="log-message">${message}</div>
+  const el = document.createElement('div');
+  el.className = 'log-entry';
+  el.innerHTML = `
+    <div class="log-dot ${type}"></div>
+    <div>
+      <div class="log-msg">${msg}</div>
       <div class="log-time">${time}</div>
-    </div>
-  `;
+    </div>`;
+  body.prepend(el);
 
-  container.prepend(entry);
-
-  // Keep max 50 entries
-  while (container.children.length > 50) {
-    container.lastElementChild.remove();
-  }
+  while (body.children.length > 40) body.lastElementChild.remove();
 }
 
 function clearLogs() {
-  const container = document.getElementById('logContainer');
-  container.innerHTML = `
-    <div class="log-empty" id="logEmpty">
-      <div class="log-empty-icon">📭</div>
-      No activity yet. Run a prediction or trigger an evaluation.
-    </div>
-  `;
+  document.getElementById('logBody').innerHTML =
+    '<div class="log-empty" id="logEmpty">No activity yet. Run a prediction to get started.</div>';
 }
