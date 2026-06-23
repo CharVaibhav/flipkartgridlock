@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const axios = require('axios');
 const cron = require('node-cron');
@@ -91,10 +92,40 @@ app.get('/api/v1/hotspots', (req, res) => {
 
 app.post('/api/v1/trigger-evaluation', async (req, res) => {
     console.log(`[Manual Trigger] Evaluating centroids immediately...`);
+    const results = [];
     for (const hotspot of historicalHotspots) {
-        await evaluateHotspot(hotspot);
+        try {
+            const telemetryPayload = {
+                segment_id: hotspot.segment_id,
+                latitude: hotspot.latitude,
+                longitude: hotspot.longitude,
+                current_speed_kmh: 8.5,
+                freeflow_speed_kmh: hotspot.freeflow_speed_kmh,
+                upstream_speed_kmh: 32.0,
+                delay_seconds: 135.0,
+                hour_of_day: new Date().getHours()
+            };
+            const classification = await axios.post(INFERENCE_ENDPOINT, telemetryPayload);
+            const status = classification.data;
+            results.push({
+                ...status,
+                police_station: hotspot.police_station,
+                safe_bay: hotspot.safe_bay
+            });
+
+            if (status.curb_choke_imminent && status.confidence_score > 0.80) {
+                console.warn(`🚨 Velocity collapse detected at ${hotspot.segment_id}.`);
+                await executeAggregatorPinShift(hotspot, status.confidence_score);
+            }
+        } catch (error) {
+            results.push({
+                segment_id: hotspot.segment_id,
+                police_station: hotspot.police_station,
+                error: error.message
+            });
+        }
     }
-    res.json({ status: "success", message: "Evaluation triggered successfully." });
+    res.json({ status: "success", results });
 });
 
 // Proxy endpoint: forwards prediction requests to the Python ML Engine

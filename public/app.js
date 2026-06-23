@@ -163,18 +163,77 @@ async function triggerAll() {
   const btn = document.getElementById('btnEvalAll');
   btn.classList.add('is-loading');
   btn.textContent = 'Evaluating…';
-  addLog('info', 'Triggering evaluation of all hotspots…');
+  addLog('info', 'Evaluating all tracked hotspots against the ML engine…');
   try {
     const res = await fetch(`${API}/api/v1/trigger-evaluation`, { method: 'POST' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
-    addLog('success', data.message);
+
+    if (data.results && data.results.length > 0) {
+      showBulkResults(data.results);
+    } else {
+      addLog('warning', 'No results returned from evaluation.');
+    }
   } catch (err) {
     addLog('warning', 'Evaluation failed: ' + err.message);
   } finally {
     btn.classList.remove('is-loading');
     btn.textContent = '🔁 Evaluate All Hotspots';
   }
+}
+
+// ─── SHOW BULK RESULTS ──────────────────────────────
+function showBulkResults(results) {
+  let chokeCount = 0;
+  let safeCount = 0;
+
+  // Log each result
+  results.forEach(r => {
+    if (r.error) {
+      addLog('warning', `⚠️ ${r.police_station || r.segment_id} — Error: ${r.error}`);
+      return;
+    }
+    if (r.curb_choke_imminent) {
+      chokeCount++;
+      addLog('danger', `🚨 ${r.police_station} (${r.segment_id}) — CHOKE DETECTED. Confidence: ${(r.confidence_score*100).toFixed(0)}%. Severity: ${r.delay_severity_index}x.`);
+      if (r.safe_bay) {
+        showPayload({ police_station: r.police_station, segment_id: r.segment_id, safe_bay: r.safe_bay }, r.confidence_score);
+      }
+    } else {
+      safeCount++;
+      addLog('success', `✅ ${r.police_station} (${r.segment_id}) — Normal flow. Confidence: ${(r.confidence_score*100).toFixed(0)}%.`);
+    }
+  });
+
+  // Show summary in the result panel
+  const panel = document.getElementById('resultPanel');
+  panel.style.display = 'block';
+
+  const banner = document.getElementById('resultBanner');
+  const label = document.getElementById('resultLabel');
+
+  if (chokeCount > 0) {
+    banner.className = 'result-banner danger';
+    label.innerHTML = `🚨 ${chokeCount} Choke${chokeCount > 1 ? 's' : ''} Detected / ${results.length} Zones`;
+  } else {
+    banner.className = 'result-banner safe';
+    label.innerHTML = `✅ All ${results.length} Zones Normal`;
+  }
+
+  const firstValid = results.find(r => !r.error);
+  document.getElementById('resultModel').textContent = firstValid?.model_used || 'Unknown';
+  document.getElementById('mConfidence').textContent = chokeCount > 0
+    ? results.filter(r => r.curb_choke_imminent).map(r => (r.confidence_score*100).toFixed(0) + '%').join(', ')
+    : (firstValid ? (firstValid.confidence_score * 100).toFixed(1) + '%' : '—');
+  document.getElementById('mSeverity').textContent = firstValid ? firstValid.delay_severity_index + 'x' : '—';
+  document.getElementById('mSegment').textContent = `${safeCount} safe · ${chokeCount} alert`;
+
+  addLog('info', `Evaluation complete: ${safeCount} safe, ${chokeCount} choke alert(s) across ${results.length} zones.`);
+
+  const result = panel.querySelector('.result');
+  result.style.animation = 'none';
+  result.offsetHeight;
+  result.style.animation = '';
 }
 
 // ─── SHOW RESULT ────────────────────────────────────
